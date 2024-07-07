@@ -1,0 +1,51 @@
+name: CI/CD Pipeline for React App
+
+on:
+  push:
+    branches:
+      - main # Trigger on push to the main branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: "16"
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build React App
+        run: npm run build
+
+      - name: Docker Login to Google Container Registry
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          echo ${{ secrets.GCP_SA_KEY }} | docker login -u _json_key --password-stdin https://gcr.io
+
+      - name: Build Docker Image
+        run: docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/my-react-app .
+
+      - name: Push Docker Image
+        run: docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/my-react-app
+
+      - name: Deploy to Google Cloud Run
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ secrets.GCP_REGION }}
+        run: |
+          gcloud config set project $GCP_PROJECT_ID
+          echo ${{ secrets.GCP_SA_KEY }} > key.json
+          gcloud auth activate-service-account --key-file=key.json
+          gcloud run deploy my-react-app \
+            --image gcr.io/$GCP_PROJECT_ID/my-react-app \
+            --platform managed \
+            --region $GCP_REGION \
+            --allow-unauthenticated
